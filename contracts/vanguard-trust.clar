@@ -319,3 +319,39 @@
     ))
   )
 )
+
+;; READ-ONLY FUNCTIONS
+
+(define-read-only (get-identity (identity principal))
+  (map-get? identities identity)
+)
+
+(define-read-only (get-credential
+    (issuer principal)
+    (nonce uint)
+  )
+  (map-get? credentials {
+    issuer: issuer,
+    nonce: nonce,
+  })
+)
+
+(define-read-only (verify-credential
+    (issuer principal)
+    (nonce uint)
+  )
+  (let ((credential (map-get? credentials {
+      issuer: issuer,
+      nonce: nonce,
+    })))
+    (asserts! (is-some credential) ERR-INVALID-CREDENTIAL)
+    (ok (and
+      (not (get revoked (unwrap-panic credential)))
+      (< stacks-block-height (get expiration (unwrap-panic credential)))
+    ))
+  )
+)
+
+(define-read-only (get-proof (proof-hash (buff 32)))
+  (map-get? zero-knowledge-proofs proof-hash)
+)
