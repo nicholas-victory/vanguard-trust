@@ -236,3 +236,86 @@
     }))
   )
 )
+
+(define-public (revoke-credential
+    (issuer principal)
+    (nonce uint)
+  )
+  (let (
+      (sender tx-sender)
+      (credential-id {
+        issuer: issuer,
+        nonce: nonce,
+      })
+      (credential (map-get? credentials credential-id))
+    )
+    (asserts! (is-some credential) ERR-INVALID-CREDENTIAL)
+    (asserts! (is-eq sender issuer) ERR-NOT-AUTHORIZED)
+    (ok (map-set credentials credential-id
+      (merge (unwrap-panic credential) { revoked: true })
+    ))
+  )
+)
+
+;; REPUTATION SYSTEM
+
+(define-public (update-reputation
+    (subject principal)
+    (score-change int)
+  )
+  (let (
+      (sender tx-sender)
+      (identity (map-get? identities subject))
+      (current-score (get reputation-score (unwrap-panic identity)))
+      (score-change-abs (if (< score-change 0)
+        (* score-change -1)
+        score-change
+      ))
+    )
+    (asserts! (is-eq sender (var-get admin)) ERR-NOT-AUTHORIZED)
+    (asserts! (is-some identity) ERR-NOT-REGISTERED)
+    (asserts!
+      (or
+        (> score-change 0)
+        (>= (to-int current-score) score-change-abs)
+      )
+      ERR-INVALID-SCORE
+    )
+    (ok (map-set identities subject
+      (merge (unwrap-panic identity) { reputation-score: (if (> score-change 0)
+        (+ current-score (to-uint score-change))
+        (to-uint (- (to-int current-score) score-change-abs))
+      ) }
+      )))
+  )
+)
+
+;; RECOVERY MECHANISMS
+
+(define-public (initiate-recovery
+    (identity principal)
+    (new-hash (buff 32))
+  )
+  (let (
+      (sender tx-sender)
+      (identity-data (map-get? identities identity))
+    )
+    (asserts! (is-some identity-data) ERR-NOT-REGISTERED)
+    (asserts! (is-some (get recovery-address (unwrap-panic identity-data)))
+      ERR-NOT-AUTHORIZED
+    )
+    (asserts!
+      (is-eq sender
+        (unwrap-panic (get recovery-address (unwrap-panic identity-data)))
+      )
+      ERR-NOT-AUTHORIZED
+    )
+    (ok (map-set identities identity
+      (merge (unwrap-panic identity-data) {
+        hash: new-hash,
+        last-updated: stacks-block-height,
+        status: "RECOVERED",
+      })
+    ))
+  )
+)
