@@ -74,3 +74,90 @@
     metadata: (string-utf8 256),
   }
 )
+
+;; Zero-knowledge proof repository for cryptographic verification
+(define-map zero-knowledge-proofs
+  (buff 32)
+  {
+    prover: principal,
+    verified: bool,
+    timestamp: uint,
+    proof-data: (buff 1024),
+  }
+)
+
+;; STATE VARIABLES
+
+(define-data-var admin principal tx-sender)
+(define-data-var credential-nonce uint u0)
+
+;; VALIDATION FUNCTIONS
+
+(define-private (is-valid-recovery-address (recovery-addr (optional principal)))
+  (match recovery-addr
+    recovery-principal (and
+      (not (is-eq recovery-principal tx-sender))
+      (not (is-eq recovery-principal (var-get admin)))
+    )
+    true
+  )
+)
+
+(define-private (is-valid-proof-data (proof-data (buff 1024)))
+  (let ((proof-len (len proof-data)))
+    (and
+      (>= proof-len MINIMUM-PROOF-SIZE)
+      (not (is-eq proof-data 0x))
+    )
+  )
+)
+
+(define-private (is-valid-expiration (expiration uint))
+  (> expiration (+ stacks-block-height MIN-EXPIRATION-BLOCKS))
+)
+
+(define-private (is-valid-metadata-length (metadata (string-utf8 256)))
+  (<= (len metadata) MAX-METADATA-LENGTH)
+)
+
+(define-private (is-valid-hash (hash (buff 32)))
+  (not (is-eq hash 0x0000000000000000000000000000000000000000000000000000000000000000))
+)
+
+;; ADMINISTRATIVE FUNCTIONS
+
+(define-public (set-admin (new-admin principal))
+  (begin
+    (asserts! (is-eq tx-sender (var-get admin)) ERR-NOT-AUTHORIZED)
+    (asserts! (not (is-eq new-admin tx-sender)) ERR-INVALID-INPUT)
+    (ok (var-set admin new-admin))
+  )
+)
+
+;; IDENTITY MANAGEMENT
+
+(define-public (register-identity
+    (identity-hash (buff 32))
+    (recovery-addr (optional principal))
+  )
+  (let (
+      (sender tx-sender)
+      (existing-identity (map-get? identities sender))
+    )
+    ;; Comprehensive input validation
+    (asserts! (is-none existing-identity) ERR-ALREADY-REGISTERED)
+    (asserts! (is-valid-hash identity-hash) ERR-INVALID-INPUT)
+    (asserts! (is-valid-recovery-address recovery-addr)
+      ERR-INVALID-RECOVERY-ADDRESS
+    )
+    ;; Initialize new identity with default reputation
+    (ok (map-set identities sender {
+      hash: identity-hash,
+      credentials: (list),
+      reputation-score: u100,
+      recovery-address: recovery-addr,
+      last-updated: stacks-block-height,
+      status: "ACTIVE",
+    }))
+  )
+)
