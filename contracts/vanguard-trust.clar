@@ -161,3 +161,78 @@
     }))
   )
 )
+
+;; ZERO-KNOWLEDGE PROOF SYSTEM
+
+(define-public (submit-proof
+    (proof-hash (buff 32))
+    (proof-data (buff 1024))
+  )
+  (let (
+      (sender tx-sender)
+      (existing-identity (map-get? identities sender))
+      (existing-proof (map-get? zero-knowledge-proofs proof-hash))
+    )
+    ;; Validate proof submission requirements
+    (asserts! (is-some existing-identity) ERR-NOT-REGISTERED)
+    (asserts! (is-valid-hash proof-hash) ERR-INVALID-INPUT)
+    (asserts! (is-valid-proof-data proof-data) ERR-INVALID-PROOF-DATA)
+    (asserts! (is-none existing-proof) ERR-INVALID-PROOF)
+    ;; Store proof awaiting verification
+    (ok (map-set zero-knowledge-proofs proof-hash {
+      prover: sender,
+      verified: false,
+      timestamp: stacks-block-height,
+      proof-data: proof-data,
+    }))
+  )
+)
+
+(define-public (verify-proof (proof-hash (buff 32)))
+  (let (
+      (proof (map-get? zero-knowledge-proofs proof-hash))
+      (sender tx-sender)
+    )
+    (asserts! (is-some proof) ERR-INVALID-PROOF)
+    (asserts! (is-eq sender (var-get admin)) ERR-NOT-AUTHORIZED)
+    (ok (map-set zero-knowledge-proofs proof-hash
+      (merge (unwrap-panic proof) { verified: true })
+    ))
+  )
+)
+
+;; CREDENTIAL LIFECYCLE MANAGEMENT
+
+(define-public (issue-credential
+    (subject principal)
+    (claim-hash (buff 32))
+    (expiration uint)
+    (metadata (string-utf8 256))
+  )
+  (let (
+      (sender tx-sender)
+      (current-nonce (var-get credential-nonce))
+      (credential-id {
+        issuer: sender,
+        nonce: current-nonce,
+      })
+      (issuer-identity (map-get? identities sender))
+      (subject-identity (map-get? identities subject))
+    )
+    ;; Validate all credential parameters
+    (asserts! (is-some issuer-identity) ERR-NOT-REGISTERED)
+    (asserts! (is-some subject-identity) ERR-NOT-REGISTERED)
+    (asserts! (is-valid-hash claim-hash) ERR-INVALID-INPUT)
+    (asserts! (is-valid-expiration expiration) ERR-INVALID-EXPIRATION)
+    (asserts! (is-valid-metadata-length metadata) ERR-INVALID-INPUT)
+    ;; Increment nonce and create credential
+    (var-set credential-nonce (+ current-nonce u1))
+    (ok (map-set credentials credential-id {
+      subject: subject,
+      claim-hash: claim-hash,
+      expiration: expiration,
+      revoked: false,
+      metadata: metadata,
+    }))
+  )
+)
